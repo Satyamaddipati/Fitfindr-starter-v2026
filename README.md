@@ -39,9 +39,15 @@
 
 ## What This Does
 
-<!-- Three or four sentences: what a user asks for, and what they get back. -->
-
-
+A user types one plain-language line describing what they're shopping for —
+something like `vintage graphic tee under $30` — and FitFindr turns that into a
+structured search of a secondhand-listings dataset, picks the best match, and
+hands back three things: the listing itself, an outfit built either from
+pieces they already own or general styling advice if their wardrobe is empty,
+and a short caption written like a real post about the find. If nothing in the
+data matches what they asked for, it stops after the search and tells them
+what to loosen — the size, the price ceiling, or the keywords — instead of
+pushing ahead with nothing to work from.
 
 ---
 
@@ -113,25 +119,34 @@
 **One full query**
 
 ```
-$ python app.py ask '...'
+$ python app.py ask 'vintage graphic tee under $30'
 
+  Found:    Y2K Baby Tee — Butterfly Print — $18.0 on depop
+
+  Outfit:   You can create a quintessential Y2K daytime look by pairing the butterfly baby tee with your baggy dark-wash straight-leg jeans and chunky white sneakers. For a slightly edgier vibe when the temperature drops, layer your black cropped zip hoodie right over the top and finish the outfit with your black combat boots.
+
+  Fit card: Found this literal dream of a butterfly baby tee on depop for just $18.00 and I'm never taking it off. It gives major 2000s pop princess energy, especially paired with baggy dark wash denim and chunky sneakers. Honestly obsessed with how easy it is to throw on and instantly look the part.
+
+0 model calls this session, 2 served from cache
 ```
 
 **The three tools, tested one at a time**
 
 ```
 $ python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
+[{'id': 'lst_017', 'title': 'Mesh Long-Sleeve Top — Black', 'price': 15.0, ...}, {'id': 'lst_002', 'title': 'Y2K Baby Tee — Butterfly Print', 'price': 18.0, ...}, {'id': 'lst_033', 'title': 'Vintage Band Tee — Faded Grey', 'price': 19.0, ...}, {'id': 'lst_006', 'title': 'Graphic Tee — 2003 Tour Bootleg Style', 'price': 24.0, ...}, {'id': 'lst_011', 'title': 'Low-Rise Cargo Pants — Khaki', 'price': 27.0, ...}, {'id': 'lst_015', 'title': 'Vintage Graphic Hoodie — Faded Black', 'price': 26.0, ...}]
+```
 
+(dicts truncated here for readability — each one carries the full listing shape described in Tool Inventory above. Worth noting: `lst_017`, a mesh top, outranks the actual graphic tees because its *description* happens to mention "graphic tee" in passing — plain keyword overlap can't tell a real match from an incidental one. That's exactly the limitation Criterion 1 budgets for.)
+
+```
+$ python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
+You can create a classic streetwear look by pairing these vintage Levi's with your white ribbed tank top and black combat boots. Layer the black denim jacket over top and accessorize with your black crossbody bag for an effortless monochrome contrast. Alternatively, throw on your oversized grey crewneck sweatshirt with the medium wash jeans and chunky white sneakers for a relaxed, everyday outfit.
 ```
 
 ```
-$ python -c "from tools import suggest_outfit; ..."
-
-```
-
-```
-$ python -c "from tools import create_fit_card; ..."
-
+$ python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0]))"
+Finally tracked down these dream medium-wash 501s on depop for just $38.00, and the fit is absolute perfection. They've got that ultimate 90s slouchy vintage vibe that I've been hunting for forever. Can't wait to live in these with my favorite white sneakers all spring.
 ```
 
 ---
@@ -147,15 +162,15 @@ $ python -c "from tools import create_fit_card; ..."
 
 **Moment 1**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I described the size-matching problem the `search_listings` docstring warns about — that `"s" in "us 9"` is `True` and so is `"l" in "xl"` — and asked for a matching rule that wouldn't have that bug, given the actual size strings in the data (`"S/M"`, `"XL (oversized)"`, `"US 8.5"`, `"W30 L30"`).
+- *What came back:* A rule that splits each listing's `size` field into whole tokens on `/` and whitespace, lowercases them, and checks for an exact token match — so `"M"` matches `"S/M"` (tokens `{"s", "m"}`) but never matches `"US 9"` (tokens `{"us", "9"}`).
+- *What I changed:* I implemented `_size_tokens()` exactly that way in `tools.py`, and wrote the matching rule into the Tool Inventory's `search_listings` entry so the behavior is documented, not just implicit in the code.
 
 **Moment 2**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I ran `create_fit_card` on the same item three times in a row and got back three word-for-word identical captions, so I asked what in the starter would cause that.
+- *What came back:* Two candidates, both in `config.py` — `CACHE_ENABLED` (identical prompts reuse a cached answer) and `TEMPERATURE` (at `0.0`, the model is deterministic). Since `TEMPERATURE` was already `0.9`, the suggestion was to isolate the cache by forcing it off for one run.
+- *What I changed:* I reran the same three calls with `AI201_CACHE=0` and got three genuinely different captions back, which confirmed the cache — not the temperature — was the cause. I didn't change any code for this (the cache is working as designed), but it changed how I read "identical output" while testing: it's not automatically a sign `create_fit_card` is broken.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
