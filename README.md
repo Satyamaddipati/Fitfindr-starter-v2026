@@ -59,24 +59,24 @@
 
 ### `search_listings`
 
-- **What it does:**
-- **Inputs:** <!-- name and type each: `max_price` (float), not "a price" -->
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Filters the listings data by size and price ceiling, then ranks what's left by keyword overlap with the description, returning the best matches first.
+- **Inputs:** `description` (str), `size` (str or `None`), `max_price` (float or `None`)
+- **Returns:** A list of listing dicts, best match first, at most `config.SEARCH_RESULT_LIMIT` of them — each with `id`, `title`, `description`, `category`, `style_tags` (list), `size`, `condition`, `price` (float), `colors` (list), `brand` (str or `None`), `platform`. Score = number of description keywords (lowercased, split on whitespace, punctuation stripped) found anywhere in the listing's `title` + `description` + `style_tags`; ties break by lower price first. A size argument only matches a whole token of the listing's `size` field split on `/` and whitespace, case-insensitive — so `"M"` matches `"S/M"` but `"S"` never matches `"US 9"`.
+- **When it has nothing:** Returns `[]` — an empty list, never `None`, never an exception.
 
 ### `suggest_outfit`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Asks the model to pair a candidate item with one or two outfits, built from the user's wardrobe when they have one, or general styling advice when they don't.
+- **Inputs:** `new_item` (dict — a listing dict), `wardrobe` (dict with key `items` → list of wardrobe item dicts, possibly empty)
+- **Returns:** A non-empty plain-prose string, 2–4 sentences, no markdown bullets. When `wardrobe["items"]` is non-empty, it names specific wardrobe items by their `name`/`category` field. When it's empty, it gives general styling advice for the item instead — same length and shape of response either way.
+- **When it has nothing:** There's no "nothing" case for the wardrobe — empty wardrobe is a valid input handled by the general-advice branch above, not an error. The only failure mode is `ModelUnavailable` bubbling up from `generate()`, which `suggest_outfit` does **not** catch — that's handled one level up, in `agent.py::run_agent`.
 
 ### `create_fit_card`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Writes a short caption, in the voice of someone posting about their thrift find, that mentions the item, its price, its platform, and the suggested outfit.
+- **Inputs:** `outfit` (str — the return value of `suggest_outfit`), `new_item` (dict — a listing dict)
+- **Returns:** A string, 2–4 sentences, that mentions `new_item["title"]`, `new_item["price"]`, and `new_item["platform"]` each exactly once.
+- **When it has nothing:** If `outfit` is empty or whitespace-only, returns the fixed string `f"No fit card available — no outfit suggestion to build one from for {new_item['title']}."` rather than calling the model or raising.
 
 ---
 
@@ -93,13 +93,13 @@
      The grader checks your code against what you claim here, so the file and
      function have to be real. -->
 
-**Branch rule:**
+**Branch rule:** If `search_listings` returns an empty list, put a message in `session["error"]` naming what to change (loosen the size, raise the price ceiling, or try different keywords) and return the session — do not call `suggest_outfit` or `create_fit_card`. Otherwise, take `search_results[0]` as `selected_item` and go on to `suggest_outfit`, then `create_fit_card`.
 
 **Where it lives:** `agent.py::run_agent`
 
-**How the query is parsed:** <!-- regex, string splitting, or asking the model — say which -->
+**How the query is parsed:** Regex — one pattern pulls a price ceiling out of phrases like "under $30" or "below $40", another pulls a size out of phrases like "size M"; whatever text is left after stripping both becomes the `description` passed to `search_listings`.
 
-**What moves through the session:** <!-- which fields, in what order -->
+**What moves through the session:** `query` → `parsed` (`description`, `size`, `max_price`) → `search_results` → `selected_item` → `outfit_suggestion` → `fit_card`, in that order, with `error` set and the run stopped short if `search_results` comes back empty.
 
 ---
 
